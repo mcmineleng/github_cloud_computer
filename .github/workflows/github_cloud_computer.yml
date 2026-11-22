@@ -12,8 +12,19 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup SSH & frpc
+        env:
+          ROOT_PASSWD: ${{ secrets.ROOT_PASSWD }}
+          USER_NAME: ${{ secrets.USER_NAME }}
+          USER_PASSED: ${{ secrets.USER_PASSED }}
+          FRPC_CONFIG: ${{ secrets.FRPC_CONFIG }}
         run: |
           set -e
+
+          echo "==== 0. 校验必填 Secret ===="
+          : "${ROOT_PASSWD:?缺少 Secret ROOT_PASSWD，请在仓库 Settings->Secrets 配置}"
+          : "${USER_NAME:?缺少 Secret USER_NAME}"
+          : "${USER_PASSED:?缺少 Secret USER_PASSED}"
+          : "${FRPC_CONFIG:?缺少 Secret FRPC_CONFIG}"
 
           echo "==== 1. 安装并配置 sshd ===="
           sudo apt-get update
@@ -22,22 +33,21 @@ jobs:
           sudo mkdir -p /run/sshd
           sudo ssh-keygen -A
 
-          # root 可登录
           sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config
 
           echo "==== 2. 设置 root 密码 ===="
-          echo "root:${{ secrets.ROOT_PASSWD }}" | sudo chpasswd
+          echo "root:${ROOT_PASSWD}" | sudo chpasswd
 
           echo "==== 3. 创建普通用户并加入 sudo 组 ===="
-          sudo useradd -m -s /bin/bash "${{ secrets.USER_NAME }}" || true
-          echo "${{ secrets.USER_NAME }}:${{ secrets.USER_PASSED }}" | sudo chpasswd
-          sudo usermod -aG sudo "${{ secrets.USER_NAME }}"
+          sudo useradd -m -s /bin/bash "${USER_NAME}" || true
+          echo "${USER_NAME}:${USER_PASSED}" | sudo chpasswd
+          sudo usermod -aG sudo "${USER_NAME}"
 
           echo "==== 4. 写入 frpc 配置 ===="
-          echo '${{ secrets.FRPC_CONFIG }}' > /tmp/frpc.toml
+          printf '%s\n' "${FRPC_CONFIG}" > /tmp/frpc.toml
 
           echo "==== 5. 下载并启动 frpc ===="
           FRPC_VER="0.53.2"
