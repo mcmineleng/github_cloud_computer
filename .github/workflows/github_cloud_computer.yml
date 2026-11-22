@@ -2,6 +2,11 @@ name: Cloud PC (Manual)
 
 on:
   workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: 'SSH 监听端口（frpc localPort 与 sshd -p 都用这个）'
+        required: false
+        default: '2222'
 
 jobs:
   cloud-pc:
@@ -17,8 +22,12 @@ jobs:
           USER_NAME: ${{ secrets.USER_NAME }}
           USER_PASSWD: ${{ secrets.USER_PASSWD }}
           FRPC_CONFIG: ${{ secrets.FRPC_CONFIG }}
+          SSH_PORT: ${{ github.event.inputs.ssh_port || '2222' }}
         run: |
           set -e
+
+          : "${SSH_PORT:=2222}"
+          echo "使用 SSH 端口: ${SSH_PORT}"
 
           echo "==== 0. 校验必填 Secret ===="
           : "${ROOT_PASSWD:?缺少 Secret ROOT_PASSWD，请在仓库 Settings->Secrets 配置}"
@@ -46,8 +55,9 @@ jobs:
           echo "${USER_NAME}:${USER_PASSWD}" | sudo chpasswd
           sudo usermod -aG sudo "${USER_NAME}"
 
-          echo "==== 4. 写入 frpc 配置 ===="
+          echo "==== 4. 写入 frpc 配置（原样落盘，localPort 请自己在 FRPC_CONFIG 里改成 ${SSH_PORT}）===="
           printf '%s\n' "${FRPC_CONFIG}" > /tmp/frpc.toml
+          grep -n 'localPort' /tmp/frpc.toml || true
 
           echo "==== 5. 下载并启动 frpc ===="
           FRPC_VER="0.53.2"
@@ -55,5 +65,6 @@ jobs:
             | tar -xz -C /tmp
           sudo /tmp/frp_${FRPC_VER}_linux_amd64/frpc -c /tmp/frpc.toml &
 
-          echo "==== 6. 前台运行 sshd（-D），日志实时可见 ===="
-          sudo /usr/sbin/sshd -D -e
+          echo "==== 6. 前台运行 sshd（-D），监听 ${SSH_PORT} 端口，日志实时可见 ===="
+          sudo mkdir -p /run/sshd
+          sudo /usr/sbin/sshd -D -e -p "${SSH_PORT}"
