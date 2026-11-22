@@ -1,0 +1,49 @@
+name: Cloud PC (Manual)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cloud-pc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH & frpc
+        run: |
+          set -e
+
+          echo "==== 1. 安装并配置 sshd ===="
+          sudo apt-get update
+          sudo apt-get install -y openssh-server
+
+          sudo mkdir -p /run/sshd
+          sudo ssh-keygen -A
+
+          # root 可登录
+          sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config
+
+          echo "==== 2. 设置 root 密码 ===="
+          echo "root:${{ secrets.ROOT_PASSWD }}" | sudo chpasswd
+
+          echo "==== 3. 创建普通用户并加入 sudo 组 ===="
+          sudo useradd -m -s /bin/bash "${{ secrets.USER_NAME }}" || true
+          echo "${{ secrets.USER_NAME }}:${{ secrets.USER_PASSED }}" | sudo chpasswd
+          sudo usermod -aG sudo "${{ secrets.USER_NAME }}"
+
+          echo "==== 4. 写入 frpc 配置 ===="
+          echo '${{ secrets.FRPC_CONFIG }}' > /tmp/frpc.toml
+
+          echo "==== 5. 下载并启动 frpc ===="
+          FRPC_VER="0.53.2"
+          curl -sSL "https://github.com/fatedier/frp/releases/download/v${FRPC_VER}/frp_${FRPC_VER}_linux_amd64.tar.gz" \
+            | tar -xz -C /tmp
+          sudo /tmp/frp_${FRPC_VER}_linux_amd64/frpc -c /tmp/frpc.toml &
+
+          echo "==== 6. 前台运行 sshd（-D），日志实时可见 ===="
+          sudo /usr/sbin/sshd -D -e
