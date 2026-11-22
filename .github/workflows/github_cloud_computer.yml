@@ -44,15 +44,22 @@ jobs:
 
           sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#*KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config
 
+          # 清掉 sshd_config.d 里可能覆盖密码认证的片段（Ubuntu 26.04 常见坑）
+          sudo sh -c 'for f in /etc/ssh/sshd_config.d/*.conf; do [ -f "$f" ] || continue; \
+            sed -i -E "s/^#*(PasswordAuthentication|KbdInteractiveAuthentication|PermitRootLogin|UsePAM)[[:space:]]+.*/#\1 removed by cloud-pc/" "$f"; done'
+
           echo "==== 2. 设置 root 密码 ===="
           echo "root:${ROOT_PASSWD}" | sudo chpasswd
+          sudo passwd -u root 2>/dev/null || true
 
           echo "==== 3. 创建普通用户并加入 sudo 组 ===="
           sudo useradd -m -s /bin/bash "${USER_NAME}" || true
           echo "${USER_NAME}:${USER_PASSWD}" | sudo chpasswd
+          sudo passwd -u "${USER_NAME}" 2>/dev/null || true
           sudo usermod -aG sudo "${USER_NAME}"
 
           echo "==== 4. 写入 frpc 配置（原样落盘，localPort 请自己在 FRPC_CONFIG 里改成 ${SSH_PORT}）===="
@@ -66,5 +73,8 @@ jobs:
           sudo /tmp/frp_${FRPC_VER}_linux_amd64/frpc -c /tmp/frpc.toml &
 
           echo "==== 6. 前台运行 sshd（-D），监听 ${SSH_PORT} 端口，日志实时可见 ===="
+          echo "---- 生效的认证配置（排查用）----"
+          sudo sshd -T 2>/dev/null | grep -Ei '^(port|permitrootlogin|passwordauthentication|kbdinteractiveauthentication|usepam) ' || true
+          echo "--------------------------------"
           sudo mkdir -p /run/sshd
           sudo /usr/sbin/sshd -D -e -p "${SSH_PORT}"
